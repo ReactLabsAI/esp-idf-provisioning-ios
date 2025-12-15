@@ -198,4 +198,51 @@ class ESPWiFiManager {
         payload.cmdScanWifiResult = configRequest
         return try security.encrypt(data: payload.serializedData())
     }
+
+    /// Send command to `ESPDevice` to reset Wi-Fi status.
+    ///
+    /// - Parameter completionHandler: The completion handler that is called when reset command is sent.
+    ///                                Parameter of block include status of the operation or error if any.
+    func resetWifiStatus(completionHandler: @escaping (Status?, Error?) -> Void) {
+        do {
+            let payloadData = try createResetWifiRequest()
+            if let data = payloadData {
+                let path = transport.utility.ctrlPath
+                transport.SendConfigData(path: path, data: data) { response, error in
+                    guard error == nil, response != nil else {
+                        completionHandler(nil, error)
+                        return
+                    }
+                    let status = self.processResetWifiResponse(responseData: response!)
+                    completionHandler(status, nil)
+                }
+            } else {
+                let error = NSError(domain: "ESPWiFiManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create reset request"])
+                completionHandler(nil, error)
+            }
+        } catch {
+            completionHandler(nil, error)
+        }
+    }
+
+    private func processResetWifiResponse(responseData: Data) -> Status? {
+        if let decryptedResponse = security.decrypt(data: responseData) {
+            do {
+                let payload = try NetworkCtrlPayload(serializedData: decryptedResponse)
+                return payload.status
+            } catch {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private func createResetWifiRequest() throws -> Data? {
+        let configRequest = CmdCtrlWifiReset()
+        let msgType = NetworkCtrlMsgType.typeCmdCtrlWifiReset
+        var payload = NetworkCtrlPayload()
+        payload.msg = msgType
+        payload.cmdCtrlWifiReset = configRequest
+        return try security.encrypt(data: payload.serializedData())
+    }
 }
