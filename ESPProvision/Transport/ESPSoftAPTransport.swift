@@ -29,6 +29,10 @@ public class ESPSoftAPTransport: ESPCommunicable {
     var utility: ESPUtility
     var session:URLSession
 
+    /// Stored cookies from Set-Cookie responses, sent on subsequent requests (matches Android EspLocalTransport behavior).
+    private var storedCookieHeader: String?
+    private let cookieLock = NSLock()
+
     /// Check device configuration status.
     ///
     /// - Returns: `Yes` if device is configured.
@@ -46,11 +50,14 @@ public class ESPSoftAPTransport: ESPCommunicable {
         self.baseUrl = baseUrl
         utility = ESPUtility()
         let config = URLSessionConfiguration.default
-        config.allowsCellularAccess  = false
+        config.allowsCellularAccess = false
+        /// Use one connection per host so session handshake and next request (e.g. ch_resp) reuse the same TCP connection.
+        config.httpMaximumConnectionsPerHost = 1
         session = URLSession(configuration: config)
     }
 
     /// Implementation of generic HTTP Request.
+    /// Sends stored cookies on request and stores Set-Cookie from response (matching Android EspLocalTransport).
     ///
     /// - Parameters:
     ///   - path: Endpoint of base url.
@@ -65,13 +72,20 @@ public class ESPSoftAPTransport: ESPCommunicable {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-type")
         request.setValue("text/plain", forHTTPHeaderField: "Accept")
 
+        cookieLock.lock()
+        if let cookie = storedCookieHeader, !cookie.isEmpty {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+            ESPLog.log("Sending Cookie header (session id from previous response)")
+        }
+        cookieLock.unlock()
+
         request.httpMethod = "POST"
         request.httpBody = data
         request.timeoutInterval = 30
         
         ESPLog.log("URLSession request initiated with data...\(data)")
         
-        let task = session.dataTask(with: request) { data, response, error in
+        let task = session.dataTask(with: request) { [weak self] data, response, error in
             ESPLog.log("Processing response..")
             guard let data = data, error == nil else {
                 ESPLog.log("Error occured on HTTP request. Error: \(error.debugDescription)")
@@ -79,9 +93,21 @@ public class ESPSoftAPTransport: ESPCommunicable {
                 return
             }
 
-            let httpStatus = response as? HTTPURLResponse
-            if httpStatus?.statusCode != 200 {
-                ESPLog.log("statusCode should be 200, but is \(String(describing: httpStatus?.statusCode))")
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode != 200 {
+                    ESPLog.log("statusCode should be 200, but is \(http.statusCode)")
+                }
+                // Store Set-Cookie so next request (e.g. ch_resp) can send it (matches Android).
+                for (key, value) in http.allHeaderFields {
+                    if (key as? String)?.lowercased() == "set-cookie", let setCookies = value as? String, !setCookies.isEmpty {
+                        guard let self = self else { return }
+                        self.cookieLock.lock()
+                        defer { self.cookieLock.unlock() }
+                        self.storedCookieHeader = setCookies.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces)
+                        ESPLog.log("Stored Set-Cookie for future requests")
+                        break
+                    }
+                }
             }
             ESPLog.log("HTTP request successful.")
             completionHandler(data, nil)
