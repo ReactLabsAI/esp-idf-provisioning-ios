@@ -43,6 +43,8 @@ struct ESPConstants {
     static let scanPath = "prov-scan"
     /// Path for establishing session with device.
     static let sessionPath = "prov-session"
+    /// Path for sending network control commands to device.
+    static let ctrlPath = "prov-ctrl"
 
     // MARK: JSON Keys
     

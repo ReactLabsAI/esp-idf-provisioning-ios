@@ -136,6 +136,8 @@ open class ESPDevice {
     private var softAPPassword:String?
     private var retryScan = false
     
+    var scanWifiManager: ESPWiFiManager?
+    
     /// Get name of current `ESPDevice`.
     public var name:String {
         return deviceName
@@ -484,13 +486,35 @@ open class ESPDevice {
         scanDeviceForWifiList(completionHandler: completionHandler)
     }
     
+    /// Send command to device to reset Wi-Fi status.
+    ///
+    /// - Parameter completionHandler: The completion handler that is called when reset command is sent.
+    ///                                Parameter of block include success status (true if successful) or error if any.
+    public func resetWifiStatus(completionHandler: @escaping (Bool, Error?) -> Void) {
+        guard let session = self.session, session.isEstablished else {
+            completionHandler(false, ESPSessionError.sessionNotEstablished)
+            return
+        }
+        
+        // Create a new WiFiManager for reset command (don't rely on scanWifiManager which may be nil)
+        self.scanWifiManager = ESPWiFiManager(session: session)
+        self.scanWifiManager?.resetWifiStatus { status, error in
+            if let error = error {
+                completionHandler(false, error)
+            } else if let status = status {
+                completionHandler(status == .success, nil)
+            } else {
+                completionHandler(false, nil)
+            }
+        }
+    }
+    
     private func scanDeviceForWifiList(completionHandler: @escaping ([ESPWifiNetwork]?,ESPWiFiScanError?) -> Void) {
         if let capability = self.capabilities, capability.contains(ESPConstants.wifiScanCapability) {
             self.wifiListCompletionHandler = completionHandler
-            let scanWifiManager: ESPWiFiManager = ESPWiFiManager(session: self.session!)
-            scanWifiManager.delegate = self
-            wifiListCompletionHandler = completionHandler
-            scanWifiManager.startWifiScan()
+            self.scanWifiManager = ESPWiFiManager(session: self.session!)
+            self.scanWifiManager?.delegate = self
+            self.scanWifiManager?.startWifiScan()
         } else {
             completionHandler(nil,.emptyResultCount)
         }

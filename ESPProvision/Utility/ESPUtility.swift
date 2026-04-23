@@ -34,6 +34,8 @@ class ESPUtility {
     var scanPath: String = ESPConstants.scanPath
     /// The path used to esptablish session with an ESPDevice.
     var sessionPath: String = ESPConstants.sessionPath
+    /// The path used for sending network control commands to ESPDevice.
+    var ctrlPath: String = ESPConstants.ctrlPath
     /// Flag indicating configuration status of peripheral device.
     var peripheralConfigured = false
     /// Store session characterisitic of connected ble device.
